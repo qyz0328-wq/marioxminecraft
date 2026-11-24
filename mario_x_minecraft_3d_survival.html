@@ -1,0 +1,2155 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>瑪利歐 x 麥塊 3D 生存冒險群島</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet" />
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Noto Sans TC', 'Inter', sans-serif;
+      background-color: #0f172a;
+    }
+    #game-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    /* 麥塊像素風外框與陰影 */
+    .mc-panel {
+      background: rgba(15, 23, 42, 0.86);
+      backdrop-filter: blur(10px);
+      border: 2px solid rgba(255, 255, 255, 0.18);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    }
+    .mc-btn {
+      transition: transform 0.1s ease, background-color 0.15s ease;
+      box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.35), inset 0 2px 0 rgba(255, 255, 255, 0.25);
+    }
+    .mc-btn:active {
+      transform: translateY(2px);
+      box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+    }
+    /* 快捷列格子 */
+    .hotbar-slot {
+      width: 48px;
+      height: 48px;
+      background: rgba(30, 41, 59, 0.85);
+      border: 3px solid #475569;
+      border-radius: 8px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.12s ease;
+    }
+    @media (min-width: 640px) {
+      .hotbar-slot {
+        width: 56px;
+        height: 56px;
+      }
+    }
+    .hotbar-slot.active {
+      border-color: #facc15;
+      background: rgba(71, 85, 105, 0.95);
+      transform: translateY(-4px) scale(1.06);
+      box-shadow: 0 0 14px rgba(250, 204, 21, 0.55);
+    }
+    /* 十字準星 */
+    #crosshair {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      width: 22px;
+      height: 22px;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 25;
+    }
+    #crosshair::before, #crosshair::after {
+      content: '';
+      position: absolute;
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
+    }
+    #crosshair::before {
+      top: 10px;
+      left: 2px;
+      width: 18px;
+      height: 2px;
+    }
+    #crosshair::after {
+      top: 2px;
+      left: 10px;
+      width: 2px;
+      height: 18px;
+    }
+    /* 受傷紅光閃爍 */
+    #damage-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(circle, transparent 45%, rgba(220, 38, 38, 0.65) 100%);
+      opacity: 0;
+      transition: opacity 0.18s ease-out;
+      z-index: 30;
+    }
+    /* 自訂捲軸 */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.4);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.5);
+      border-radius: 9999px;
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body class="text-slate-100">
+
+  <!-- 3D WebGL 畫布 -->
+  <canvas id="game-canvas"></canvas>
+
+  <!-- 中心十字準星 -->
+  <div id="crosshair"></div>
+
+  <!-- 受傷紅色螢幕特效 -->
+  <div id="damage-overlay"></div>
+
+  <!-- 頂部狀態資訊列 -->
+  <div class="fixed top-3 left-1/2 -translate-x-1/2 z-20 flex flex-wrap items-center justify-center gap-2 px-3 py-1.5 rounded-full mc-panel text-xs sm:text-sm pointer-events-auto">
+    <div class="flex items-center gap-1.5 font-bold text-emerald-400">
+      <i class="fa-solid fa-location-dot"></i>
+      <span id="location-name">麥塊平原島</span>
+    </div>
+    <span class="text-slate-500">|</span>
+    <div class="flex items-center gap-1.5 text-amber-300 font-semibold">
+      <i class="fa-solid fa-skull"></i>
+      <span>怪物: <span id="mob-count">0</span></span>
+    </div>
+    <span class="text-slate-500">|</span>
+    <div class="flex items-center gap-1.5 text-sky-300 font-semibold">
+      <i class="fa-solid fa-trophy"></i>
+      <span>擊殺: <span id="kill-count">0</span></span>
+    </div>
+    <span class="text-slate-500">|</span>
+    <button id="btn-voice-toggle" class="px-2.5 py-0.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold flex items-center gap-1 cursor-pointer">
+      <i id="voice-icon" class="fa-solid fa-volume-high"></i>
+      <span id="voice-label">語音開</span>
+    </button>
+  </div>
+
+  <!-- 左側可收合主題與生存指南面板 -->
+  <button id="btn-expand-sidebar" class="hidden fixed top-3 left-3 z-30 p-3 rounded-xl mc-panel text-amber-400 hover:bg-slate-800 cursor-pointer shadow-lg" title="展開生存手冊">
+    <i class="fa-solid fa-book-open text-lg"></i>
+  </button>
+
+  <aside id="left-sidebar" class="fixed top-3 left-3 bottom-24 w-72 sm:w-80 z-20 rounded-2xl mc-panel flex flex-col overflow-hidden transition-all duration-300">
+    <div class="p-3.5 bg-gradient-to-r from-red-600/90 via-amber-600/90 to-emerald-600/90 flex items-center justify-between border-b border-white/15">
+      <div>
+        <h1 class="font-black text-base sm:text-lg tracking-wide text-white drop-shadow">🍄 瑪利歐 × 麥塊 ⛏️</h1>
+        <p class="text-[11px] text-amber-100 font-medium">3D 雙重宇宙生存冒險群島</p>
+      </div>
+      <button id="btn-collapse-sidebar" class="p-2 rounded-lg bg-black/30 hover:bg-black/50 text-white cursor-pointer" title="收合面板">
+        <i class="fa-solid fa-chevron-left"></i>
+      </button>
+    </div>
+
+    <div class="p-3.5 overflow-y-auto space-y-3 text-xs sm:text-sm flex-1">
+      <!-- 操作說明 -->
+      <div class="p-3 rounded-xl bg-slate-800/80 border border-slate-700 space-y-1.5">
+        <h2 class="font-bold text-amber-300 flex items-center gap-1.5">
+          <i class="fa-solid fa-gamepad"></i> 麥塊生存操作指南
+        </h2>
+        <ul class="text-xs text-slate-300 space-y-1">
+          <li><span class="text-white font-bold">W A S D</span>：四處移動 ｜ <span class="text-white font-bold">Shift</span>：衝刺</li>
+          <li><span class="text-white font-bold">Space</span>：跳躍 ｜ <span class="text-white font-bold">1 ~ 8</span>：切換手持物資</li>
+          <li><span class="text-white font-bold">滑鼠左鍵</span>：挖取方塊 / 揮劍攻擊怪物</li>
+          <li><span class="text-white font-bold">滑鼠右鍵</span>：放置方塊 / 吃食物 / NPC 對話</li>
+        </ul>
+      </div>
+
+      <!-- 6 座生存物資浮空島 -->
+      <div class="p-3 rounded-xl bg-slate-800/80 border border-slate-700 space-y-2">
+        <h2 class="font-bold text-emerald-400 flex items-center gap-1.5">
+          <i class="fa-solid fa-earth-asia"></i> 6 大生存物資浮空島
+        </h2>
+        <div class="space-y-1.5 text-xs">
+          <div class="p-2 rounded-lg bg-slate-900/70 border border-slate-700/70">
+            <div class="font-bold text-green-400">1. 🌳 麥塊平原島 (起點)</div>
+            <div class="text-slate-400">物資：橡木原木、石頭、蘋果、史蒂夫導師</div>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-900/70 border border-slate-700/70">
+            <div class="font-bold text-red-400">2. 🍄 蘑菇王國島 (東側)</div>
+            <div class="text-slate-400">物資：問號磚塊(掉超級蘑菇)、瑪利歐 & 奇諾比奧</div>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-900/70 border border-slate-700/70">
+            <div class="font-bold text-yellow-400">3. 🏜️ 荒蕪沙漠島 (南側)</div>
+            <div class="text-slate-400">物資：砂岩、黃金礦脈、仙人掌</div>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-900/70 border border-slate-700/70">
+            <div class="font-bold text-cyan-300">4. ❄️ 極寒冰雪島 (西側)</div>
+            <div class="text-slate-400">物資：雪塊、冰塊、稀有鑽石礦脈</div>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-900/70 border border-slate-700/70">
+            <div class="font-bold text-orange-400">5. 🌋 庫巴熔岩堡壘 (北側)</div>
+            <div class="text-slate-400">物資：黑曜石、黃金與鑽石寶藏 (小心岩漿灼傷!)</div>
+          </div>
+          <div class="p-2 rounded-lg bg-slate-900/70 border border-slate-700/70">
+            <div class="font-bold text-purple-400">6. 🌲 幽暗黑森林島 (東南)</div>
+            <div class="text-slate-400">物資：深色原木、鑽石礦脈 (苦力怕與殭屍聚集地)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 主題背景知識 (真實考據) -->
+      <div class="p-3 rounded-xl bg-slate-800/80 border border-slate-700 space-y-1.5">
+        <h2 class="font-bold text-sky-400 flex items-center gap-1.5">
+          <i class="fa-solid fa-lightbulb"></i> 雙經典遊戲百科
+        </h2>
+        <p class="text-xs text-slate-300 leading-relaxed">
+          <strong>《超級瑪利歐兄弟》</strong>由任天堂宮本茂團隊於 1985 年在 NES 推出，開創橫向捲軸平台跳躍經典；<strong>《Minecraft》</strong>由 Mojang 於 2009 年推出，讓玩家在 1×1×1 體素方塊世界中採集資源、合成建造與生存冒險。
+        </p>
+        <div class="flex flex-wrap gap-2 pt-1 text-[11px]">
+          <a href="https://mario.nintendo.com/" target="_blank" rel="noopener noreferrer" class="text-amber-300 underline hover:text-amber-200">任天堂瑪利歐官網 ↗</a>
+          <a href="https://www.minecraft.net/" target="_blank" rel="noopener noreferrer" class="text-emerald-300 underline hover:text-emerald-200">Minecraft 官網 ↗</a>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 右上角 NPC 快速對話與補給按鈕 -->
+  <div class="fixed top-3 right-3 z-20 flex flex-col gap-2">
+    <button id="btn-play-guide" class="px-3 py-2 rounded-xl mc-panel hover:bg-slate-800 text-xs sm:text-sm font-bold text-amber-300 flex items-center gap-2 cursor-pointer">
+      <i class="fa-solid fa-comment-dots"></i>
+      <span>語音導覽</span>
+    </button>
+    <button id="btn-respawn-supply" class="px-3 py-2 rounded-xl mc-panel hover:bg-slate-800 text-xs sm:text-sm font-bold text-emerald-300 flex items-center gap-2 cursor-pointer">
+      <i class="fa-solid fa-box-open"></i>
+      <span>補充物資</span>
+    </button>
+  </div>
+
+  <!-- 對話框 (NPC 與系統語音導覽) -->
+  <div id="dialogue-box" class="hidden fixed bottom-28 left-1/2 -translate-x-1/2 w-[92%] max-w-xl z-30 rounded-2xl mc-panel p-4 border-2 border-amber-400/70">
+    <div class="flex items-start gap-3">
+      <div id="dialogue-avatar" class="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-400 flex items-center justify-center text-2xl shrink-0">
+        🧑‍🔧
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center justify-between mb-1">
+          <span id="dialogue-speaker" class="font-black text-amber-300 text-sm sm:text-base">史蒂夫 (Steve)</span>
+          <button id="btn-close-dialogue" class="text-xs px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 cursor-pointer">關閉 [ESC]</button>
+        </div>
+        <p id="dialogue-text" class="text-xs sm:text-sm text-slate-100 leading-relaxed min-h-[2.5rem]"></p>
+        <div id="dialogue-actions" class="mt-2.5 flex flex-wrap gap-2"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 提示訊息 Toast -->
+  <div id="toast-msg" class="fixed top-16 left-1/2 -translate-x-1/2 z-30 px-4 py-1.5 rounded-full bg-slate-900/90 border border-amber-400/60 text-amber-200 text-xs sm:text-sm font-bold opacity-0 pointer-events-none transition-opacity duration-200"></div>
+
+  <!-- 底部生存 HUD：愛心生命值、雞腿飢餓度、快捷物品欄 -->
+  <div class="fixed bottom-2 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1.5 w-full max-w-lg px-2 pointer-events-none">
+    <!-- 生命值 & 飢餓度列 -->
+    <div class="w-full flex items-center justify-between px-2 py-1 rounded-xl bg-slate-950/75 border border-white/10 text-xs sm:text-sm">
+      <div id="health-bar" class="flex items-center gap-0.5" title="生命值 (HP)"></div>
+      <div id="hunger-bar" class="flex items-center gap-0.5" title="飢餓度 (Hunger)"></div>
+    </div>
+
+    <!-- 8 格麥塊快捷欄 -->
+    <div id="hotbar" class="flex items-center justify-center gap-1 sm:gap-1.5 pointer-events-auto">
+      <button class="hotbar-slot active cursor-pointer" data-slot="0" title="1: 鑽石劍 (攻擊怪物)">
+        <span class="absolute top-0.5 left-1 text-[10px] font-bold text-slate-300">1</span>
+        <span class="text-xl sm:text-2xl">🗡️</span>
+      </button>
+      <button class="hotbar-slot cursor-pointer" data-slot="1" title="2: 橡木原木">
+        <span class="absolute top-0.5 left-1 text-[10px] font-bold text-slate-300">2</span>
+        <div class="w-6 h-6 sm:w-7 sm:h-7 rounded bg-amber-800 border-2 border-amber-950"></div>
+        <span id="count-wood" class="absolute bottom-0.5 right-1 text-[10px] font-black text-white drop-shadow">12</span>
+      </button>
+      <button class="hotbar-slot cursor-pointer" data-slot="2" title="3: 圓石方塊">
+        <span class="absolute top-0.5 left-1 text-[10px] font-bold text-slate-300">3</span>
+        <div class="w-6 h-6 sm:w-7 sm:h-7 rounded bg-slate-500 border-2 border-slate-700"></div>
+        <span id="count-stone" class="absolute bottom-0.5 right-1 text-[10px] font-black text-white drop-shadow">16</span>
+      </button>
+      <button class="hotbar-slot cursor-pointer" data-slot="3" title="4: 草地泥土">
+        <span class="absolute top-0.5 left-1 text-[10px] font-bold text-slate-300">4</span>
+        <div class="w-6 h-6 sm:w-7 sm:h-7 rounded bg-amber-900 border-t-4 border-green-500"></div>
+        <span id="count-grass" class="absolute bottom-0.5 right-1 text-[10px] font-black text-white drop-shadow">16</span>
+      </button>
+      <button class="hotbar-slot cursor-pointer" data-slot="4" title="5: 瑪利歐紅磚">
+        <span class="absolute top-0.5 left-1 text-[10px] font-bold text-slate-300">5</span>
+        <div class="w-6 h-6 sm:w-7 sm:h-7 rounded bg-red-700 border-2 border-red-950"></div>
+        <span id="count-brick" class="absolute bottom-0.5 right-1 text-[10px] font-black text-white drop-shadow">8</span>
+      </button>
+      <button class="hotbar-slot cursor-pointer" data-slot="5" title="6: 問號磚塊">
+        <span class="absolute top-0.5 left-1 text-[10px] font-bold text-slate-300">6</span>
+        <div class="w-6 h-6 sm:w-7 sm:h-7 rounded bg-yellow-400 border-2 border-amber-700 flex items-center justify-center text-xs font-black text-amber-950">?</div>
+        <span id="count-question" class="absolute bottom-0.5 right-1 text-[10px] font-black text-white drop-shadow">4</span>
+      </button>
+      <button class="hotbar-slot cursor-pointer" data-slot="6" title="7: 鑽石礦磚">
+        <span class="absolute top-0.5 left-1 text-[10px] font-bold text-slate-300">7</span>
+        <div class="w-6 h-6 sm:w-7 sm:h-7 rounded bg-slate-600 border-2 border-cyan-400"></div>
+        <span id="count-diamond" class="absolute bottom-0.5 right-1 text-[10px] font-black text-white drop-shadow">2</span>
+      </button>
+      <button class="hotbar-slot cursor-pointer" data-slot="7" title="8: 超級蘋果/蘑菇 (右鍵食用回復體力)">
+        <span class="absolute top-0.5 left-1 text-[10px] font-bold text-slate-300">8</span>
+        <span class="text-xl sm:text-2xl">🍎</span>
+        <span id="count-food" class="absolute bottom-0.5 right-1 text-[10px] font-black text-white drop-shadow">5</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- 手機 / 平板觸控操作按鈕 -->
+  <div id="mobile-controls" class="fixed inset-x-0 bottom-24 z-20 flex items-end justify-between px-4 pointer-events-none md:hidden">
+    <!-- 虛擬方向搖桿 -->
+    <div id="joystick-zone" class="w-28 h-28 rounded-full bg-white/15 border-2 border-white/30 relative pointer-events-auto flex items-center justify-center">
+      <div id="joystick-knob" class="w-11 h-11 rounded-full bg-amber-400/85 shadow-lg"></div>
+    </div>
+    <!-- 右側動作按鈕 -->
+    <div class="flex flex-col gap-2 pointer-events-auto">
+      <button id="btn-touch-jump" class="w-14 h-14 rounded-full bg-sky-500/85 border-2 border-white text-white font-black text-xs shadow-lg active:scale-95">跳躍</button>
+      <div class="flex gap-2">
+        <button id="btn-touch-break" class="w-14 h-14 rounded-full bg-red-600/85 border-2 border-white text-white font-black text-xs shadow-lg active:scale-95">挖/打</button>
+        <button id="btn-touch-place" class="w-14 h-14 rounded-full bg-emerald-600/85 border-2 border-white text-white font-black text-xs shadow-lg active:scale-95">放/吃</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 開始 / 暫停 / 死亡重生遮罩畫面 -->
+  <div id="overlay-screen" class="fixed inset-0 z-40 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="max-w-md w-full rounded-3xl mc-panel p-6 text-center space-y-4 border-2 border-amber-400/60">
+      <div class="text-4xl sm:text-5xl">🍄 ⚔️ ⛏️</div>
+      <h2 id="overlay-title" class="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-amber-300 to-emerald-400">
+        瑪利歐 × 麥塊 生存冒險
+      </h2>
+      <p id="overlay-desc" class="text-xs sm:text-sm text-slate-300 leading-relaxed">
+        探索 <strong>6 座主題浮空島</strong>，採集木材、礦石與超級蘑菇，抵禦殭屍、苦力怕與栗寶寶的襲擊！點擊下方按鈕鎖定準星並開始生存冒險。
+      </p>
+      <div class="grid grid-cols-2 gap-2 text-left text-xs bg-slate-900/80 p-3 rounded-xl border border-slate-700">
+        <div>⌨️ <strong>WASD</strong>：移動角色</div>
+        <div>🦘 <strong>Space</strong>：跳躍攀爬</div>
+        <div>⛏️ <strong>左鍵</strong>：挖方塊 / 砍怪</div>
+        <div>🧱 <strong>右鍵</strong>：放方塊 / 吃食物</div>
+      </div>
+      <button id="btn-start-game" class="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-400 hover:to-green-500 text-white font-black text-base sm:text-lg mc-btn cursor-pointer">
+        立即進入 3D 生存世界
+      </button>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+    /* =========================================================================
+       1. 音效與中文語音合成系統 (Web Audio API + Web Speech API)
+       ========================================================================= */
+    let audioCtx = null;
+    let voiceEnabled = true;
+
+    function initAudio() {
+      try {
+        if (!audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) {
+            audioCtx = new AudioContextClass();
+          }
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+      } catch (err) {
+        console.warn('Audio init skipped:', err);
+      }
+    }
+
+    function playTone(freq, type, duration, volume = 0.25, slideTo = null) {
+      try {
+        initAudio();
+        if (!audioCtx) return;
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, now);
+        if (slideTo) {
+          osc.frequency.exponentialRampToValueAtTime(slideTo, now + duration);
+        }
+        gain.gain.setValueAtTime(volume, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + duration);
+      } catch (e) {
+        // 忽略瀏覽器未互動前的音效限制
+      }
+    }
+
+    const SFX = {
+      breakBlock: () => playTone(160, 'square', 0.12, 0.22, 70),
+      placeBlock: () => playTone(320, 'triangle', 0.09, 0.2, 480),
+      swingSword: () => playTone(420, 'sine', 0.1, 0.15, 140),
+      hitMob: () => playTone(120, 'sawtooth', 0.18, 0.3, 60),
+      hurt: () => playTone(180, 'sawtooth', 0.32, 0.38, 65),
+      eat: () => {
+        playTone(440, 'sine', 0.08, 0.2, 580);
+        setTimeout(() => playTone(580, 'sine', 0.1, 0.2, 720), 90);
+      },
+      coin: () => {
+        playTone(988, 'square', 0.08, 0.18);
+        setTimeout(() => playTone(1319, 'square', 0.22, 0.18), 80);
+      },
+      explosion: () => playTone(90, 'sawtooth', 0.55, 0.45, 25)
+    };
+
+    function speakText(text) {
+      if (!voiceEnabled) return;
+      try {
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const utter = new SpeechSynthesisUtterance(text);
+          utter.lang = 'zh-TW';
+          utter.rate = 1.08;
+          utter.pitch = 1.05;
+          window.speechSynthesis.speak(utter);
+        }
+      } catch (e) {
+        console.warn('Speech synthesis unavailable:', e);
+      }
+    }
+
+    /* =========================================================================
+       2. UI 提示與對話框控制器
+       ========================================================================= */
+    const toastEl = document.getElementById('toast-msg');
+    let toastTimer = null;
+    function showToast(msg) {
+      toastEl.textContent = msg;
+      toastEl.style.opacity = '1';
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toastEl.style.opacity = '0';
+      }, 2200);
+    }
+
+    const dialogueBox = document.getElementById('dialogue-box');
+    const dialogueAvatar = document.getElementById('dialogue-avatar');
+    const dialogueSpeaker = document.getElementById('dialogue-speaker');
+    const dialogueText = document.getElementById('dialogue-text');
+    const dialogueActions = document.getElementById('dialogue-actions');
+    let typeInterval = null;
+
+    function openDialogue(speaker, avatar, text, buttons = [], speak = true) {
+      dialogueBox.classList.remove('hidden');
+      dialogueAvatar.textContent = avatar;
+      dialogueSpeaker.textContent = speaker;
+      dialogueActions.innerHTML = '';
+      clearInterval(typeInterval);
+      dialogueText.textContent = '';
+
+      if (speak) speakText(text);
+
+      let idx = 0;
+      typeInterval = setInterval(() => {
+        dialogueText.textContent += text.charAt(idx);
+        idx++;
+        if (idx >= text.length) {
+          clearInterval(typeInterval);
+        }
+      }, 22);
+
+      buttons.forEach((btnInfo) => {
+        const b = document.createElement('button');
+        b.className = 'px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs cursor-pointer';
+        b.textContent = btnInfo.label;
+        b.onclick = () => {
+          btnInfo.onClick();
+        };
+        dialogueActions.appendChild(b);
+      });
+    }
+
+    function closeDialogue() {
+      dialogueBox.classList.add('hidden');
+      clearInterval(typeInterval);
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    }
+
+    document.getElementById('btn-close-dialogue').addEventListener('click', closeDialogue);
+
+    /* =========================================================================
+       3. Three.js 高畫質場景與程式化像素材質生成
+       ========================================================================= */
+    const canvas = document.getElementById('game-canvas');
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      powerPreference: 'high-performance'
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.08;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x7cc8ff);
+    scene.fog = new THREE.FogExp2(0x8fd3ff, 0.011);
+
+    const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 180);
+
+    // 漸層天空穹頂
+    function createSkyDome() {
+      const skyGeo = new THREE.SphereGeometry(140, 24, 16);
+      const skyCanvas = document.createElement('canvas');
+      skyCanvas.width = 16;
+      skyCanvas.height = 256;
+      const ctx = skyCanvas.getContext('2d');
+      const grad = ctx.createLinearGradient(0, 0, 0, 256);
+      grad.addColorStop(0.0, '#1d4ed8');
+      grad.addColorStop(0.45, '#60a5fa');
+      grad.addColorStop(0.75, '#bae6fd');
+      grad.addColorStop(1.0, '#e0f2fe');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 16, 256);
+      const skyTex = new THREE.CanvasTexture(skyCanvas);
+      const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false });
+      const skyMesh = new THREE.Mesh(skyGeo, skyMat);
+      scene.add(skyMesh);
+    }
+    createSkyDome();
+
+    // 環境光與柔和太陽方向光
+    const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x3f6212, 0.78);
+    hemiLight.position.set(0, 50, 0);
+    scene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xfffbeb, 1.35);
+    dirLight.position.set(35, 58, 28);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.camera.near = 5;
+    dirLight.shadow.camera.far = 140;
+    const shadowBound = 48;
+    dirLight.shadow.camera.left = -shadowBound;
+    dirLight.shadow.camera.right = shadowBound;
+    dirLight.shadow.camera.top = shadowBound;
+    dirLight.shadow.camera.bottom = -shadowBound;
+    dirLight.shadow.bias = -0.0005;
+    scene.add(dirLight);
+
+    // 程式化 16x16 麥塊與瑪利歐像素貼圖生成器
+    function makePixelTexture(drawFn) {
+      const c = document.createElement('canvas');
+      c.width = 16;
+      c.height = 16;
+      const ctx = c.getContext('2d');
+      drawFn(ctx);
+      const tex = new THREE.CanvasTexture(c);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    function fillNoise(ctx, baseColors, count = 45) {
+      ctx.fillStyle = baseColors[0];
+      ctx.fillRect(0, 0, 16, 16);
+      for (let i = 0; i < count; i++) {
+        ctx.fillStyle = baseColors[i % baseColors.length];
+        ctx.fillRect((i * 7) % 16, (i * 11) % 16, 1, 1);
+      }
+    }
+
+    const Textures = {
+      grassTop: makePixelTexture((ctx) => fillNoise(ctx, ['#4ade80', '#22c55e', '#16a34a', '#86efac'], 70)),
+      grassSide: makePixelTexture((ctx) => {
+        fillNoise(ctx, ['#78350f', '#92400e', '#5c2d16'], 60);
+        ctx.fillStyle = '#22c55e';
+        ctx.fillRect(0, 0, 16, 4);
+        ctx.fillStyle = '#16a34a';
+        for (let x = 0; x < 16; x += 2) {
+          ctx.fillRect(x, 4, 1, (x % 4 === 0) ? 2 : 1);
+        }
+      }),
+      dirt: makePixelTexture((ctx) => fillNoise(ctx, ['#78350f', '#92400e', '#5c2d16', '#6b3410'], 70)),
+      stone: makePixelTexture((ctx) => fillNoise(ctx, ['#64748b', '#94a3b8', '#475569', '#71717a'], 80)),
+      woodSide: makePixelTexture((ctx) => {
+        fillNoise(ctx, ['#6b3e26', '#54301c', '#7c4a2d'], 50);
+        ctx.fillStyle = '#3f2314';
+        ctx.fillRect(3, 0, 1, 16);
+        ctx.fillRect(9, 0, 1, 16);
+        ctx.fillRect(14, 0, 1, 16);
+      }),
+      woodTop: makePixelTexture((ctx) => {
+        ctx.fillStyle = '#6b3e26';
+        ctx.fillRect(0, 0, 16, 16);
+        ctx.fillStyle = '#d97706';
+        ctx.fillRect(2, 2, 12, 12);
+        ctx.fillStyle = '#92400e';
+        ctx.fillRect(4, 4, 8, 8);
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillRect(6, 6, 4, 4);
+      }),
+      darkWood: makePixelTexture((ctx) => fillNoise(ctx, ['#3b2314', '#29170d', '#4a2c1a'], 65)),
+      leaves: makePixelTexture((ctx) => fillNoise(ctx, ['#15803d', '#166534', '#22c55e', '#14532d'], 75)),
+      darkLeaves: makePixelTexture((ctx) => fillNoise(ctx, ['#14532d', '#052e16', '#1e3a2f'], 75)),
+      diamondOre: makePixelTexture((ctx) => {
+        fillNoise(ctx, ['#64748b', '#475569', '#94a3b8'], 65);
+        ctx.fillStyle = '#22d3ee';
+        ctx.fillRect(3, 3, 3, 2);
+        ctx.fillRect(10, 5, 3, 3);
+        ctx.fillRect(5, 11, 3, 2);
+        ctx.fillStyle = '#a5f3fc';
+        ctx.fillRect(4, 3, 1, 1);
+        ctx.fillRect(11, 6, 1, 1);
+      }),
+      goldOre: makePixelTexture((ctx) => {
+        fillNoise(ctx, ['#64748b', '#475569', '#94a3b8'], 65);
+        ctx.fillStyle = '#facc15';
+        ctx.fillRect(2, 4, 3, 2);
+        ctx.fillRect(9, 3, 3, 3);
+        ctx.fillRect(6, 10, 4, 2);
+      }),
+      brick: makePixelTexture((ctx) => {
+        ctx.fillStyle = '#b91c1c';
+        ctx.fillRect(0, 0, 16, 16);
+        ctx.fillStyle = '#fca5a5';
+        ctx.fillRect(0, 3, 16, 1);
+        ctx.fillRect(0, 7, 16, 1);
+        ctx.fillRect(0, 11, 16, 1);
+        ctx.fillRect(0, 15, 16, 1);
+        ctx.fillRect(7, 0, 1, 4);
+        ctx.fillRect(3, 4, 1, 4);
+        ctx.fillRect(11, 4, 1, 4);
+        ctx.fillRect(7, 8, 1, 4);
+        ctx.fillRect(3, 12, 1, 4);
+        ctx.fillRect(11, 12, 1, 4);
+      }),
+      question: makePixelTexture((ctx) => {
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillRect(0, 0, 16, 16);
+        ctx.fillStyle = '#fef08a';
+        ctx.fillRect(1, 1, 14, 1);
+        ctx.fillRect(1, 1, 1, 14);
+        ctx.fillStyle = '#92400e';
+        ctx.fillRect(2, 2, 1, 1);
+        ctx.fillRect(13, 2, 1, 1);
+        ctx.fillRect(2, 13, 1, 1);
+        ctx.fillRect(13, 13, 1, 1);
+        // 問號圖案
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(6, 3, 4, 2);
+        ctx.fillRect(9, 5, 2, 3);
+        ctx.fillRect(7, 8, 2, 2);
+        ctx.fillRect(7, 11, 2, 2);
+      }),
+      pipe: makePixelTexture((ctx) => {
+        ctx.fillStyle = '#16a34a';
+        ctx.fillRect(0, 0, 16, 16);
+        ctx.fillStyle = '#4ade80';
+        ctx.fillRect(2, 0, 3, 16);
+        ctx.fillStyle = '#14532d';
+        ctx.fillRect(12, 0, 4, 16);
+      }),
+      sand: makePixelTexture((ctx) => fillNoise(ctx, ['#fde68a', '#fcd34d', '#f59e0b', '#fef3c7'], 70)),
+      snow: makePixelTexture((ctx) => fillNoise(ctx, ['#ffffff', '#f1f5f9', '#e2e8f0'], 50)),
+      ice: makePixelTexture((ctx) => fillNoise(ctx, ['#7dd3fc', '#bae6fd', '#38bdf8'], 55)),
+      obsidian: makePixelTexture((ctx) => fillNoise(ctx, ['#1e1b4b', '#0f172a', '#312e81', '#4c1d95'], 75)),
+      lava: makePixelTexture((ctx) => fillNoise(ctx, ['#ef4444', '#f97316', '#facc15', '#dc2626'], 85))
+    };
+
+    const MatLib = {
+      grass: [
+        new THREE.MeshStandardMaterial({ map: Textures.grassSide, roughness: 0.85 }),
+        new THREE.MeshStandardMaterial({ map: Textures.grassSide, roughness: 0.85 }),
+        new THREE.MeshStandardMaterial({ map: Textures.grassTop, roughness: 0.8 }),
+        new THREE.MeshStandardMaterial({ map: Textures.dirt, roughness: 0.9 }),
+        new THREE.MeshStandardMaterial({ map: Textures.grassSide, roughness: 0.85 }),
+        new THREE.MeshStandardMaterial({ map: Textures.grassSide, roughness: 0.85 })
+      ],
+      dirt: new THREE.MeshStandardMaterial({ map: Textures.dirt, roughness: 0.9 }),
+      stone: new THREE.MeshStandardMaterial({ map: Textures.stone, roughness: 0.85 }),
+      wood: [
+        new THREE.MeshStandardMaterial({ map: Textures.woodSide, roughness: 0.8 }),
+        new THREE.MeshStandardMaterial({ map: Textures.woodSide, roughness: 0.8 }),
+        new THREE.MeshStandardMaterial({ map: Textures.woodTop, roughness: 0.8 }),
+        new THREE.MeshStandardMaterial({ map: Textures.woodTop, roughness: 0.8 }),
+        new THREE.MeshStandardMaterial({ map: Textures.woodSide, roughness: 0.8 }),
+        new THREE.MeshStandardMaterial({ map: Textures.woodSide, roughness: 0.8 })
+      ],
+      darkWood: new THREE.MeshStandardMaterial({ map: Textures.darkWood, roughness: 0.85 }),
+      leaves: new THREE.MeshStandardMaterial({ map: Textures.leaves, roughness: 0.8 }),
+      darkLeaves: new THREE.MeshStandardMaterial({ map: Textures.darkLeaves, roughness: 0.85 }),
+      diamond: new THREE.MeshStandardMaterial({ map: Textures.diamondOre, roughness: 0.4, metalness: 0.2 }),
+      gold: new THREE.MeshStandardMaterial({ map: Textures.goldOre, roughness: 0.45, metalness: 0.3 }),
+      brick: new THREE.MeshStandardMaterial({ map: Textures.brick, roughness: 0.7 }),
+      question: new THREE.MeshStandardMaterial({ map: Textures.question, emissive: 0xd97706, emissiveIntensity: 0.22, roughness: 0.4 }),
+      pipe: new THREE.MeshStandardMaterial({ map: Textures.pipe, roughness: 0.35, metalness: 0.15 }),
+      sand: new THREE.MeshStandardMaterial({ map: Textures.sand, roughness: 0.95 }),
+      snow: new THREE.MeshStandardMaterial({ map: Textures.snow, roughness: 0.85 }),
+      ice: new THREE.MeshStandardMaterial({ map: Textures.ice, roughness: 0.15, transparent: true, opacity: 0.88 }),
+      obsidian: new THREE.MeshStandardMaterial({ map: Textures.obsidian, roughness: 0.35 }),
+      lava: new THREE.MeshStandardMaterial({ map: Textures.lava, emissive: 0xea580c, emissiveIntensity: 0.85, roughness: 0.4 })
+    };
+
+    /* =========================================================================
+       4. 體素世界地圖與 6 座生存浮空島生成
+       ========================================================================= */
+    const worldGroup = new THREE.Group();
+    scene.add(worldGroup);
+
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+    const worldBlocks = new Map(); // key: "x,y,z" -> { type, mesh }
+    const blockMeshes = [];
+
+    function addBlock(x, y, z, type) {
+      const rx = Math.round(x);
+      const ry = Math.round(y);
+      const rz = Math.round(z);
+      const key = `${rx},${ry},${rz}`;
+      if (worldBlocks.has(key)) return;
+
+      const mat = MatLib[type] || MatLib.dirt;
+      const mesh = new THREE.Mesh(boxGeo, mat);
+      mesh.position.set(rx, ry, rz);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData = { isBlock: true, type, x: rx, y: ry, z: rz };
+      worldGroup.add(mesh);
+      worldBlocks.set(key, { type, mesh });
+      blockMeshes.push(mesh);
+    }
+
+    function removeBlock(x, y, z, spawnParticles = true) {
+      const rx = Math.round(x);
+      const ry = Math.round(y);
+      const rz = Math.round(z);
+      const key = `${rx},${ry},${rz}`;
+      const data = worldBlocks.get(key);
+      if (!data) return null;
+
+      if (spawnParticles) {
+        createBreakParticles(rx, ry, rz, data.type);
+      }
+
+      worldGroup.remove(data.mesh);
+      const idx = blockMeshes.indexOf(data.mesh);
+      if (idx !== -1) blockMeshes.splice(idx, 1);
+      worldBlocks.delete(key);
+      return data.type;
+    }
+
+    function hasBlock(x, y, z) {
+      return worldBlocks.has(`${Math.round(x)},${Math.round(y)},${Math.round(z)}`);
+    }
+
+    // 破壞方塊粒子特效
+    const particles = [];
+    const particleGeo = new THREE.BoxGeometry(0.18, 0.18, 0.18);
+    const particleColors = {
+      grass: 0x22c55e,
+      dirt: 0x78350f,
+      stone: 0x64748b,
+      wood: 0x6b3e26,
+      darkWood: 0x3b2314,
+      leaves: 0x15803d,
+      darkLeaves: 0x14532d,
+      diamond: 0x22d3ee,
+      gold: 0xfacc15,
+      brick: 0xb91c1c,
+      question: 0xf59e0b,
+      pipe: 0x16a34a,
+      sand: 0xfcd34d,
+      snow: 0xffffff,
+      ice: 0x7dd3fc,
+      obsidian: 0x312e81,
+      lava: 0xf97316
+    };
+
+    function createBreakParticles(x, y, z, type) {
+      const color = particleColors[type] || 0x94a3b8;
+      const mat = new THREE.MeshStandardMaterial({ color });
+      for (let i = 0; i < 10; i++) {
+        const p = new THREE.Mesh(particleGeo, mat);
+        p.position.set(
+          x + (Math.random() - 0.5) * 0.7,
+          y + (Math.random() - 0.5) * 0.7,
+          z + (Math.random() - 0.5) * 0.7
+        );
+        const vel = new THREE.Vector3(
+          (Math.random() - 0.5) * 4.5,
+          Math.random() * 4 + 1.5,
+          (Math.random() - 0.5) * 4.5
+        );
+        scene.add(p);
+        particles.push({ mesh: p, vel, life: 0.65 });
+      }
+    }
+
+    // 漂浮白雲
+    const clouds = [];
+    function generateClouds() {
+      const cloudMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.95,
+        transparent: true,
+        opacity: 0.9
+      });
+      for (let i = 0; i < 16; i++) {
+        const g = new THREE.Group();
+        const w = 3 + Math.floor(Math.random() * 4);
+        const d = 2 + Math.floor(Math.random() * 3);
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(w * 2, 1.2, d * 2), cloudMat);
+        g.add(mesh);
+        g.position.set(
+          (Math.random() - 0.5) * 130,
+          22 + Math.random() * 14,
+          (Math.random() - 0.5) * 130
+        );
+        scene.add(g);
+        clouds.push({ group: g, speed: 0.6 + Math.random() * 0.6 });
+      }
+    }
+    generateClouds();
+
+    // 建造浮空島基礎圓盤與倒錐底部
+    function buildIslandBase(cx, cy, cz, radius, topType, midType, botType = 'stone') {
+      for (let dx = -radius; dx <= radius; dx++) {
+        for (let dz = -radius; dz <= radius; dz++) {
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          if (dist <= radius + 0.2) {
+            addBlock(cx + dx, cy, cz + dz, topType);
+            if (dist <= radius - 0.8) {
+              addBlock(cx + dx, cy - 1, cz + dz, midType);
+            }
+            if (dist <= radius - 2.2) {
+              addBlock(cx + dx, cy - 2, cz + dz, botType);
+            }
+            if (dist <= radius - 3.8) {
+              addBlock(cx + dx, cy - 3, cz + dz, botType);
+            }
+          }
+        }
+      }
+    }
+
+    function buildTree(x, y, z, woodType = 'wood', leafType = 'leaves') {
+      for (let h = 0; h < 4; h++) {
+        addBlock(x, y + h, z, woodType);
+      }
+      for (let lx = -2; lx <= 2; lx++) {
+        for (let lz = -2; lz <= 2; lz++) {
+          for (let ly = 3; ly <= 4; ly++) {
+            if (Math.abs(lx) + Math.abs(lz) <= 3) {
+              addBlock(x + lx, y + ly, z + lz, leafType);
+            }
+          }
+        }
+      }
+      addBlock(x, y + 5, z, leafType);
+      addBlock(x + 1, y + 5, z, leafType);
+      addBlock(x - 1, y + 5, z, leafType);
+      addBlock(x, y + 5, z + 1, leafType);
+      addBlock(x, y + 5, z - 1, leafType);
+    }
+
+    const ISLANDS = [
+      { name: '🌳 麥塊平原島', x: 0, y: 0, z: 0, r: 7 },
+      { name: '🍄 蘑菇王國島', x: 24, y: 0, z: 0, r: 7 },
+      { name: '🏜️ 荒蕪沙漠島', x: 0, y: 0, z: 24, r: 7 },
+      { name: '❄️ 極寒冰雪島', x: -24, y: 0, z: 0, r: 7 },
+      { name: '🌋 庫巴熔岩堡壘', x: 0, y: 0, z: -24, r: 7 },
+      { name: '🌲 幽暗黑森林島', x: 22, y: 1, z: 22, r: 7 }
+    ];
+
+    function buildAll6Islands() {
+      // 1. 🌳 麥塊平原島 (0, 0, 0)
+      buildIslandBase(0, 0, 0, 7, 'grass', 'dirt', 'stone');
+      buildTree(-3, 1, -3, 'wood', 'leaves');
+      buildTree(3, 1, -4, 'wood', 'leaves');
+      // 礦石補給堆
+      addBlock(4, 1, 3, 'stone');
+      addBlock(5, 1, 3, 'stone');
+      addBlock(4, 2, 3, 'gold');
+      addBlock(-4, 1, 3, 'wood');
+
+      // 2. 🍄 蘑菇王國島 (24, 0, 0)
+      buildIslandBase(24, 0, 0, 7, 'brick', 'dirt', 'stone');
+      // 經典問號磚塊列
+      addBlock(22, 4, -2, 'brick');
+      addBlock(23, 4, -2, 'question');
+      addBlock(24, 4, -2, 'brick');
+      addBlock(25, 4, -2, 'question');
+      addBlock(26, 4, -2, 'brick');
+      addBlock(24, 7, -2, 'question');
+      // 綠色水管
+      for (let py = 1; py <= 3; py++) {
+        addBlock(27, py, 3, 'pipe');
+        addBlock(21, py, 3, 'pipe');
+      }
+
+      // 3. 🏜️ 荒蕪沙漠島 (0, 0, 24)
+      buildIslandBase(0, 0, 24, 7, 'sand', 'sand', 'stone');
+      // 仙人掌與黃金礦脈
+      for (let cy = 1; cy <= 3; cy++) addBlock(-3, cy, 26, 'pipe');
+      for (let cy = 1; cy <= 2; cy++) addBlock(4, cy, 22, 'pipe');
+      addBlock(0, 1, 27, 'gold');
+      addBlock(1, 1, 27, 'gold');
+      addBlock(0, 2, 27, 'diamond');
+
+      // 4. ❄️ 極寒冰雪島 (-24, 0, 0)
+      buildIslandBase(-24, 0, 0, 7, 'snow', 'ice', 'stone');
+      for (let ix = -2; ix <= 2; ix++) {
+        addBlock(-24 + ix, 1, -3, 'ice');
+        addBlock(-24 + ix, 2, -3, 'ice');
+      }
+      addBlock(-24, 3, -3, 'diamond');
+      addBlock(-26, 1, 3, 'diamond');
+
+      // 5. 🌋 庫巴熔岩堡壘 (0, 0, -24)
+      buildIslandBase(0, 0, -24, 7, 'obsidian', 'stone', 'obsidian');
+      // 中央熔岩池 (踩上去會扣血)
+      for (let lx = -1; lx <= 1; lx++) {
+        for (let lz = -1; lz <= 1; lz++) {
+          removeBlock(lx, 0, -24 + lz, false);
+          addBlock(lx, 0, -24 + lz, 'lava');
+        }
+      }
+      // 堡壘城牆與寶藏
+      for (let bx = -3; bx <= 3; bx++) {
+        addBlock(bx, 1, -28, 'brick');
+        addBlock(bx, 2, -28, 'brick');
+      }
+      addBlock(0, 3, -28, 'diamond');
+      addBlock(-1, 3, -28, 'gold');
+      addBlock(1, 3, -28, 'gold');
+
+      // 6. 🌲 幽暗黑森林島 (22, 1, 22)
+      buildIslandBase(22, 1, 22, 7, 'grass', 'dirt', 'stone');
+      buildTree(19, 2, 19, 'darkWood', 'darkLeaves');
+      buildTree(25, 2, 24, 'darkWood', 'darkLeaves');
+      addBlock(22, 2, 26, 'diamond');
+      addBlock(23, 2, 26, 'gold');
+
+      // 連接各座島嶼的生存木橋 / 石橋
+      // 平原 <-> 蘑菇王國
+      for (let x = 8; x <= 16; x++) {
+        addBlock(x, 0, 0, 'wood');
+        addBlock(x, 0, 1, 'wood');
+      }
+      // 平原 <-> 冰雪島
+      for (let x = -16; x <= -8; x++) {
+        addBlock(x, 0, 0, 'wood');
+        addBlock(x, 0, -1, 'wood');
+      }
+      // 平原 <-> 沙漠島
+      for (let z = 8; z <= 16; z++) {
+        addBlock(0, 0, z, 'wood');
+        addBlock(1, 0, z, 'wood');
+      }
+      // 平原 <-> 熔岩島
+      for (let z = -16; z <= -8; z++) {
+        addBlock(0, 0, z, 'stone');
+        addBlock(-1, 0, z, 'stone');
+      }
+      // 蘑菇王國 <-> 黑森林島
+      for (let i = 1; i <= 10; i++) {
+        const bx = 24 - Math.round(i * 0.2);
+        const bz = 7 + i;
+        addBlock(bx, 1, bz, 'wood');
+        addBlock(bx + 1, 1, bz, 'wood');
+      }
+    }
+    buildAll6Islands();
+
+    /* =========================================================================
+       5. 友善 NPC 系統 (史蒂夫、瑪利歐、奇諾比奧) + 語音對話
+       ========================================================================= */
+    const npcs = [];
+    const npcMeshes = [];
+
+    function createCharacterMesh(skinColor, shirtColor, pantsColor, hatColor = null) {
+      const g = new THREE.Group();
+
+      // 腿部
+      const legGeo = new THREE.BoxGeometry(0.26, 0.65, 0.26);
+      const pantsMat = new THREE.MeshStandardMaterial({ color: pantsColor });
+      const leftLeg = new THREE.Mesh(legGeo, pantsMat);
+      leftLeg.position.set(-0.15, 0.325, 0);
+      leftLeg.castShadow = true;
+      const rightLeg = new THREE.Mesh(legGeo, pantsMat);
+      rightLeg.position.set(0.15, 0.325, 0);
+      rightLeg.castShadow = true;
+
+      // 身體
+      const bodyGeo = new THREE.BoxGeometry(0.56, 0.68, 0.3);
+      const shirtMat = new THREE.MeshStandardMaterial({ color: shirtColor });
+      const body = new THREE.Mesh(bodyGeo, shirtMat);
+      body.position.set(0, 0.99, 0);
+      body.castShadow = true;
+
+      // 手臂
+      const armGeo = new THREE.BoxGeometry(0.22, 0.64, 0.24);
+      const skinMat = new THREE.MeshStandardMaterial({ color: skinColor });
+      const leftArm = new THREE.Mesh(armGeo, skinMat);
+      leftArm.position.set(-0.4, 0.99, 0);
+      leftArm.castShadow = true;
+      const rightArm = new THREE.Mesh(armGeo, skinMat);
+      rightArm.position.set(0.4, 0.99, 0);
+      rightArm.castShadow = true;
+
+      // 頭部
+      const headGeo = new THREE.BoxGeometry(0.48, 0.48, 0.48);
+      const head = new THREE.Mesh(headGeo, skinMat);
+      head.position.set(0, 1.58, 0);
+      head.castShadow = true;
+
+      // 眼睛
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111827 });
+      const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.04), eyeMat);
+      eyeL.position.set(-0.11, 1.6, 0.24);
+      const eyeR = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.04), eyeMat);
+      eyeR.position.set(0.11, 1.6, 0.24);
+
+      g.add(leftLeg, rightLeg, body, leftArm, rightArm, head, eyeL, eyeR);
+
+      if (hatColor) {
+        const hatMat = new THREE.MeshStandardMaterial({ color: hatColor });
+        const hatTop = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.16, 0.52), hatMat);
+        hatTop.position.set(0, 1.86, 0);
+        const hatBrim = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.08, 0.65), hatMat);
+        hatBrim.position.set(0, 1.79, 0.07);
+        g.add(hatTop, hatBrim);
+      }
+
+      return { group: g, leftLeg, rightLeg, leftArm, rightArm };
+    }
+
+    function spawnNPC(name, avatar, x, y, z, skin, shirt, pants, hat, message) {
+      const rig = createCharacterMesh(skin, shirt, pants, hat);
+      rig.group.position.set(x, y, z);
+      rig.group.traverse((child) => {
+        if (child.isMesh) {
+          child.userData.isNPC = true;
+          child.userData.npcRef = null;
+        }
+      });
+      scene.add(rig.group);
+      const npcObj = {
+        name,
+        avatar,
+        rig,
+        homeX: x,
+        homeZ: z,
+        baseY: y,
+        dirAngle: Math.random() * Math.PI * 2,
+        walkTimer: 2 + Math.random() * 2,
+        message
+      };
+      rig.group.traverse((child) => {
+        if (child.isMesh) child.userData.npcRef = npcObj;
+      });
+      npcs.push(npcObj);
+      npcMeshes.push(rig.group);
+    }
+
+    spawnNPC(
+      '史蒂夫 (Steve)',
+      '⛏️',
+      2, 1, 2,
+      0xd99b72, 0x06b6d4, 0x3730a3, null,
+      '歡迎來到麥塊平原島！我是史蒂夫。用左鍵挖橡木與礦石收集物資，按 1 號鍵切換鑽石劍擊退晚上的殭屍與苦力怕！過橋可以前往瑪利歐的蘑菇王國喔！'
+    );
+    spawnNPC(
+      '瑪利歐 (Mario)',
+      '🍄',
+      24, 1, 2,
+      0xfcd5b5, 0xdc2626, 0x1d4ed8, 0xdc2626,
+      'Mamma Mia！歡迎來到蘑菇王國島！試著敲碎空中的黃色問號磚塊，裡面藏著能回復生命與飽食度的超級蘑菇與金幣！'
+    );
+    spawnNPC(
+      '奇諾比奧 (Toad)',
+      '👑',
+      22, 1, -4,
+      0xfde68a, 0x2563eb, 0xffffff, 0xef4444,
+      '前方東南方的黑森林島有很多珍貴鑽石礦，但那裡常有苦力怕與栗寶寶出沒，請務必準備好武器與食物再出發！'
+    );
+
+    /* =========================================================================
+       6. 敵對怪物生成與追蹤攻擊 AI (殭屍、苦力怕、栗寶寶)
+       ========================================================================= */
+    const mobs = [];
+    const mobMeshes = [];
+    let killCount = 0;
+
+    function createMobRig(type) {
+      const g = new THREE.Group();
+      if (type === 'zombie') {
+        const rig = createCharacterMesh(0x4d7c0f, 0x0891b2, 0x312e81, null);
+        // 殭屍雙手平舉
+        rig.leftArm.rotation.x = -Math.PI / 2.2;
+        rig.rightArm.rotation.x = -Math.PI / 2.2;
+        return rig;
+      } else if (type === 'creeper') {
+        const mat = new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.8 });
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.0, 0.35), mat);
+        body.position.set(0, 0.85, 0);
+        body.castShadow = true;
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), mat);
+        head.position.set(0, 1.62, 0);
+        head.castShadow = true;
+        // 苦力怕經典哭臉
+        const faceMat = new THREE.MeshBasicMaterial({ color: 0x090d16 });
+        const eye1 = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.04), faceMat);
+        eye1.position.set(-0.13, 1.68, 0.28);
+        const eye2 = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.04), faceMat);
+        eye2.position.set(0.13, 1.68, 0.28);
+        const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.18, 0.04), faceMat);
+        mouth.position.set(0, 1.5, 0.28);
+
+        const legGeo = new THREE.BoxGeometry(0.24, 0.4, 0.24);
+        const legFL = new THREE.Mesh(legGeo, mat); legFL.position.set(-0.15, 0.2, 0.18);
+        const legFR = new THREE.Mesh(legGeo, mat); legFR.position.set(0.15, 0.2, 0.18);
+        const legBL = new THREE.Mesh(legGeo, mat); legBL.position.set(-0.15, 0.2, -0.18);
+        const legBR = new THREE.Mesh(legGeo, mat); legBR.position.set(0.15, 0.2, -0.18);
+
+        g.add(body, head, eye1, eye2, mouth, legFL, legFR, legBL, legBR);
+        return { group: g, leftLeg: legFL, rightLeg: legFR, bodyMat: mat };
+      } else {
+        // 瑪利歐栗寶寶 (Goomba)
+        const capMat = new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.7 });
+        const stemMat = new THREE.MeshStandardMaterial({ color: 0xfde68a });
+        const footMat = new THREE.MeshStandardMaterial({ color: 0x1e293b });
+
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.58, 0.85), capMat);
+        cap.position.set(0, 0.68, 0);
+        cap.castShadow = true;
+        const stem = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.35, 0.5), stemMat);
+        stem.position.set(0, 0.28, 0);
+        const footL = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.38), footMat);
+        footL.position.set(-0.2, 0.09, 0.05);
+        const footR = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.38), footMat);
+        footR.position.set(0.2, 0.09, 0.05);
+
+        const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const pupilMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        const eL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.04), eyeMat);
+        eL.position.set(-0.16, 0.68, 0.43);
+        const eR = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.04), eyeMat);
+        eR.position.set(0.16, 0.68, 0.43);
+        const pL = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.1, 0.05), pupilMat);
+        pL.position.set(-0.14, 0.68, 0.44);
+        const pR = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.1, 0.05), pupilMat);
+        pR.position.set(0.14, 0.68, 0.44);
+
+        g.add(cap, stem, footL, footR, eL, eR, pL, pR);
+        return { group: g, leftLeg: footL, rightLeg: footR };
+      }
+    }
+
+    function spawnMob(type, x, y, z) {
+      if (mobs.length >= 12) return;
+      const rig = createMobRig(type);
+      rig.group.position.set(x, y, z);
+      const maxHp = type === 'creeper' ? 16 : (type === 'zombie' ? 20 : 12);
+      const mobObj = {
+        type,
+        rig,
+        hp: maxHp,
+        maxHp,
+        velY: 0,
+        attackCooldown: 0,
+        fuseTimer: 0,
+        wanderAngle: Math.random() * Math.PI * 2,
+        wanderTimer: 2
+      };
+      rig.group.traverse((child) => {
+        if (child.isMesh) {
+          child.userData.isMob = true;
+          child.userData.mobRef = mobObj;
+        }
+      });
+      scene.add(rig.group);
+      mobs.push(mobObj);
+      mobMeshes.push(rig.group);
+      document.getElementById('mob-count').textContent = mobs.length;
+    }
+
+    function removeMob(mobObj) {
+      const idx = mobs.indexOf(mobObj);
+      if (idx !== -1) mobs.splice(idx, 1);
+      const mIdx = mobMeshes.indexOf(mobObj.rig.group);
+      if (mIdx !== -1) mobMeshes.splice(mIdx, 1);
+      scene.remove(mobObj.rig.group);
+      document.getElementById('mob-count').textContent = mobs.length;
+    }
+
+    // 初始怪物配置在不同島嶼
+    function spawnInitialMobs() {
+      spawnMob('zombie', 20, 2, 20);
+      spawnMob('creeper', 24, 2, 24);
+      spawnMob('goomba', 26, 1, -2);
+      spawnMob('zombie', -24, 1, 2);
+      spawnMob('goomba', 2, 1, 25);
+      spawnMob('creeper', -2, 1, -22);
+    }
+    spawnInitialMobs();
+
+    /* =========================================================================
+       7. 玩家生存狀態、物品欄與第一人稱控制
+       ========================================================================= */
+    const player = {
+      pos: new THREE.Vector3(0, 3.0, 3),
+      vel: new THREE.Vector3(0, 0, 0),
+      height: 1.65,
+      radius: 0.32,
+      onGround: false,
+      hp: 20,        // 20 點 = 10 顆愛心
+      maxHp: 20,
+      hunger: 20,    // 20 點 = 10 個雞腿
+      maxHunger: 20,
+      invulnTimer: 0,
+      hungerDrainTimer: 0,
+      regenTimer: 0,
+      lavaTickTimer: 0
+    };
+
+    const inventory = {
+      wood: 12,
+      stone: 16,
+      grass: 16,
+      brick: 8,
+      question: 4,
+      diamond: 2,
+      food: 5
+    };
+
+    const hotbarItems = [
+      { id: 'sword', name: '鑽石劍', isTool: true },
+      { id: 'wood', name: '橡木原木', blockType: 'wood' },
+      { id: 'stone', name: '圓石方塊', blockType: 'stone' },
+      { id: 'grass', name: '草地泥土', blockType: 'grass' },
+      { id: 'brick', name: '瑪利歐紅磚', blockType: 'brick' },
+      { id: 'question', name: '問號磚塊', blockType: 'question' },
+      { id: 'diamond', name: '鑽石礦磚', blockType: 'diamond' },
+      { id: 'food', name: '超級蘋果/蘑菇', isFood: true }
+    ];
+
+    let selectedSlot = 0;
+
+    function updateInventoryUI() {
+      document.getElementById('count-wood').textContent = inventory.wood;
+      document.getElementById('count-stone').textContent = inventory.stone;
+      document.getElementById('count-grass').textContent = inventory.grass;
+      document.getElementById('count-brick').textContent = inventory.brick;
+      document.getElementById('count-question').textContent = inventory.question;
+      document.getElementById('count-diamond').textContent = inventory.diamond;
+      document.getElementById('count-food').textContent = inventory.food;
+    }
+
+    function selectSlot(index) {
+      selectedSlot = (index + hotbarItems.length) % hotbarItems.length;
+      document.querySelectorAll('.hotbar-slot').forEach((el, i) => {
+        el.classList.toggle('active', i === selectedSlot);
+      });
+      updateHeldItemVisual();
+    }
+
+    function updateSurvivalHUD() {
+      const healthBar = document.getElementById('health-bar');
+      const hungerBar = document.getElementById('hunger-bar');
+      let heartsHtml = '';
+      for (let i = 0; i < 10; i++) {
+        const val = player.hp - i * 2;
+        if (val >= 2) {
+          heartsHtml += '<i class="fa-solid fa-heart text-red-500 drop-shadow"></i>';
+        } else if (val === 1) {
+          heartsHtml += '<i class="fa-solid fa-heart-crack text-red-400 drop-shadow"></i>';
+        } else {
+          heartsHtml += '<i class="fa-regular fa-heart text-slate-600"></i>';
+        }
+      }
+      healthBar.innerHTML = heartsHtml;
+
+      let foodHtml = '';
+      for (let i = 0; i < 10; i++) {
+        const val = player.hunger - i * 2;
+        if (val >= 1) {
+          foodHtml += '<i class="fa-solid fa-drumstick-bite text-amber-500 drop-shadow"></i>';
+        } else {
+          foodHtml += '<i class="fa-solid fa-drumstick-bite text-slate-600"></i>';
+        }
+      }
+      hungerBar.innerHTML = foodHtml;
+    }
+    updateSurvivalHUD();
+
+    // 第一人稱手持物品模型
+    const heldGroup = new THREE.Group();
+    camera.add(heldGroup);
+    scene.add(camera);
+
+    let heldMesh = null;
+    let swingAnim = 0;
+
+    function updateHeldItemVisual() {
+      if (heldMesh) {
+        heldGroup.remove(heldMesh);
+      }
+      const item = hotbarItems[selectedSlot];
+      if (item.id === 'sword') {
+        const g = new THREE.Group();
+        const blade = new THREE.Mesh(
+          new THREE.BoxGeometry(0.08, 0.58, 0.04),
+          new THREE.MeshStandardMaterial({ color: 0x22d3ee, metalness: 0.5, roughness: 0.2 })
+        );
+        blade.position.y = 0.28;
+        const guard = new THREE.Mesh(
+          new THREE.BoxGeometry(0.24, 0.06, 0.06),
+          new THREE.MeshStandardMaterial({ color: 0x0e7490 })
+        );
+        const hilt = new THREE.Mesh(
+          new THREE.BoxGeometry(0.06, 0.16, 0.06),
+          new THREE.MeshStandardMaterial({ color: 0x78350f })
+        );
+        hilt.position.y = -0.1;
+        g.add(blade, guard, hilt);
+        g.position.set(0.42, -0.34, -0.58);
+        g.rotation.set(0.25, -0.3, 0.15);
+        heldMesh = g;
+      } else if (item.isFood) {
+        const apple = new THREE.Mesh(
+          new THREE.BoxGeometry(0.24, 0.24, 0.24),
+          new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.3 })
+        );
+        apple.position.set(0.42, -0.35, -0.55);
+        heldMesh = apple;
+      } else {
+        const mat = MatLib[item.blockType] || MatLib.dirt;
+        const blk = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), mat);
+        blk.position.set(0.44, -0.36, -0.58);
+        blk.rotation.set(0.2, 0.5, 0);
+        heldMesh = blk;
+      }
+      heldGroup.add(heldMesh);
+    }
+    updateHeldItemVisual();
+
+    function triggerSwing() {
+      swingAnim = 1.0;
+    }
+
+    function damagePlayer(amount, reason = '') {
+      if (player.invulnTimer > 0) return;
+      player.hp = Math.max(0, player.hp - amount);
+      player.invulnTimer = 0.8;
+      SFX.hurt();
+      updateSurvivalHUD();
+
+      const overlay = document.getElementById('damage-overlay');
+      overlay.style.opacity = '1';
+      setTimeout(() => {
+        overlay.style.opacity = '0';
+      }, 220);
+
+      if (reason) showToast(reason);
+
+      if (player.hp <= 0) {
+        respawnPlayer('💀 你在生存冒險中倒下了！已於麥塊平原島重生。');
+      }
+    }
+
+    function respawnPlayer(msg) {
+      player.pos.set(0, 3.5, 3);
+      player.vel.set(0, 0, 0);
+      player.hp = player.maxHp;
+      player.hunger = player.maxHunger;
+      updateSurvivalHUD();
+      if (msg) {
+        showToast(msg);
+        speakText(msg);
+      }
+    }
+
+    /* =========================================================================
+       8. PointerLockControls + 鍵盤與手機觸控輸入
+       ========================================================================= */
+    const controls = new PointerLockControls(camera, document.body);
+    const overlayScreen = document.getElementById('overlay-screen');
+    const btnStartGame = document.getElementById('btn-start-game');
+
+    btnStartGame.addEventListener('click', () => {
+      initAudio();
+      overlayScreen.classList.add('hidden');
+      try {
+        controls.lock();
+      } catch (e) {
+        // 觸控裝置不支援 PointerLock 時可直接遊玩
+      }
+      speakText('歡迎來到瑪利歐與麥塊的 3D 生存世界！探索六座浮空島，收集物資並小心怪物。');
+    });
+
+    controls.addEventListener('unlock', () => {
+      // 如果不是手機觸控模式且對話框未開啟，顯示暫停選單
+      const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      if (!isTouch && dialogueBox.classList.contains('hidden')) {
+        document.getElementById('overlay-title').textContent = '遊戲已暫停';
+        document.getElementById('overlay-desc').textContent = '點擊下方按鈕繼續你的 3D 生存冒險！';
+        btnStartGame.textContent = '繼續遊戲';
+        overlayScreen.classList.remove('hidden');
+      }
+    });
+
+    const keys = {};
+    window.addEventListener('keydown', (e) => {
+      keys[e.code] = true;
+      if (e.code.startsWith('Digit')) {
+        const num = parseInt(e.code.replace('Digit', ''), 10);
+        if (num >= 1 && num <= 8) {
+          selectSlot(num - 1);
+        }
+      }
+      if (e.code === 'Escape') {
+        closeDialogue();
+      }
+    });
+    window.addEventListener('keyup', (e) => {
+      keys[e.code] = false;
+    });
+
+    window.addEventListener('wheel', (e) => {
+      if (e.deltaY > 0) selectSlot(selectedSlot + 1);
+      else if (e.deltaY < 0) selectSlot(selectedSlot - 1);
+    });
+
+    document.querySelectorAll('.hotbar-slot').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const slot = parseInt(btn.getAttribute('data-slot'), 10);
+        selectSlot(slot);
+      });
+    });
+
+    // 手機觸控搖桿與視角滑動
+    let joyMoveX = 0;
+    let joyMoveZ = 0;
+    const joyZone = document.getElementById('joystick-zone');
+    const joyKnob = document.getElementById('joystick-knob');
+
+    if (joyZone) {
+      joyZone.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const rect = joyZone.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const maxDist = rect.width / 2 - 16;
+        let dx = touch.clientX - cx;
+        let dy = touch.clientY - cy;
+        const dist = Math.hypot(dx, dy);
+        if (dist > maxDist) {
+          dx = (dx / dist) * maxDist;
+          dy = (dy / dist) * maxDist;
+        }
+        joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+        joyMoveX = dx / maxDist;
+        joyMoveZ = dy / maxDist;
+      }, { passive: false });
+
+      joyZone.addEventListener('touchend', () => {
+        joyKnob.style.transform = 'translate(0px, 0px)';
+        joyMoveX = 0;
+        joyMoveZ = 0;
+      });
+    }
+
+    // 觸控滑動畫面旋轉鏡頭
+    let lastTouchX = null;
+    let lastTouchY = null;
+    canvas.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        lastTouchX = e.touches[0].clientX;
+        lastTouchY = e.touches[0].clientY;
+      }
+    }, { passive: true });
+
+    canvas.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 1 && lastTouchX !== null) {
+        const dx = e.touches[0].clientX - lastTouchX;
+        const dy = e.touches[0].clientY - lastTouchY;
+        lastTouchX = e.touches[0].clientX;
+        lastTouchY = e.touches[0].clientY;
+        const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+        euler.setFromQuaternion(camera.quaternion);
+        euler.y -= dx * 0.006;
+        euler.x = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, euler.x - dy * 0.006));
+        camera.quaternion.setFromEuler(euler);
+      }
+    }, { passive: true });
+
+    document.getElementById('btn-touch-jump').addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (player.onGround) {
+        player.vel.y = 8.4;
+        player.onGround = false;
+      }
+    });
+    document.getElementById('btn-touch-break').addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      performPrimaryAction();
+    });
+    document.getElementById('btn-touch-place').addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      performSecondaryAction();
+    });
+
+    /* =========================================================================
+       9. Raycaster 互動系統：挖方塊、放方塊、吃食物、砍怪物、NPC 對話
+       ========================================================================= */
+    const raycaster = new THREE.Raycaster();
+    raycaster.far = 6.0;
+
+    function getCenterRayHits(targets) {
+      raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+      return raycaster.intersectObjects(targets, true);
+    }
+
+    function performPrimaryAction() {
+      triggerSwing();
+      SFX.swingSword();
+
+      // 1. 優先偵測是否擊中怪物
+      const mobHits = getCenterRayHits(mobMeshes);
+      if (mobHits.length > 0 && mobHits[0].distance <= 4.5) {
+        const mobRef = mobHits[0].object.userData.mobRef;
+        if (mobRef) {
+          const item = hotbarItems[selectedSlot];
+          const dmg = item.id === 'sword' ? 8 : 3;
+          mobRef.hp -= dmg;
+          SFX.hitMob();
+
+          // 擊退效果
+          const knock = new THREE.Vector3()
+            .subVectors(mobRef.rig.group.position, player.pos)
+            .setY(0)
+            .normalize()
+            .multiplyScalar(2.4);
+          mobRef.rig.group.position.add(knock);
+          mobRef.velY = 3.5;
+
+          if (mobRef.hp <= 0) {
+            removeMob(mobRef);
+            killCount++;
+            document.getElementById('kill-count').textContent = killCount;
+            inventory.food += 1;
+            updateInventoryUI();
+            showToast(`⚔️ 擊敗怪物！獲得戰利品 🍎 超級蘋果 +1`);
+          } else {
+            showToast(`💥 命中怪物！剩餘血量 ${mobRef.hp}/${mobRef.maxHp}`);
+          }
+          return;
+        }
+      }
+
+      // 2. 偵測是否挖取方塊
+      const blockHits = getCenterRayHits(blockMeshes);
+      if (blockHits.length > 0) {
+        const hit = blockHits[0];
+        const { x, y, z, type } = hit.object.userData;
+        if (type === 'lava') {
+          showToast('🔥 岩漿無法直接徒手挖取！');
+          return;
+        }
+        const brokenType = removeBlock(x, y, z, true);
+        if (!brokenType) return;
+        SFX.breakBlock();
+
+        // 依據挖到的方塊給予生存資源
+        if (brokenType === 'wood' || brokenType === 'darkWood') {
+          inventory.wood++;
+          showToast('🪵 採集到 橡木原木 +1');
+        } else if (brokenType === 'stone' || brokenType === 'obsidian') {
+          inventory.stone++;
+          showToast('🪨 採集到 圓石方塊 +1');
+        } else if (brokenType === 'grass' || brokenType === 'dirt' || brokenType === 'sand' || brokenType === 'snow') {
+          inventory.grass++;
+          showToast('🌱 採集到 地形方塊 +1');
+        } else if (brokenType === 'brick' || brokenType === 'pipe') {
+          inventory.brick++;
+          showToast('🧱 採集到 瑪利歐紅磚 +1');
+        } else if (brokenType === 'diamond') {
+          inventory.diamond++;
+          SFX.coin();
+          showToast('💎 採集到 稀有鑽石礦 +1！');
+        } else if (brokenType === 'gold') {
+          inventory.diamond++;
+          SFX.coin();
+          showToast('🪙 採集到 黃金礦脈！轉化為寶石物資 +1');
+        } else if (brokenType === 'leaves' || brokenType === 'darkLeaves') {
+          if (Math.random() < 0.45) {
+            inventory.food++;
+            showToast('🍎 樹葉掉落了 超級蘋果 +1！');
+          }
+        } else if (brokenType === 'question') {
+          SFX.coin();
+          inventory.food += 2;
+          inventory.question += 1;
+          showToast('❓ 敲破問號磚塊！獲得 超級蘑菇 +2 🍄');
+        }
+        updateInventoryUI();
+      }
+    }
+
+    function performSecondaryAction() {
+      // 1. 檢查是否對著友善 NPC 互動對話
+      const npcHits = getCenterRayHits(npcMeshes);
+      if (npcHits.length > 0 && npcHits[0].distance <= 5.0) {
+        const npc = npcHits[0].object.userData.npcRef;
+        if (npc) {
+          if (controls.isLocked) controls.unlock();
+          openDialogue(npc.name, npc.avatar, npc.message, [
+            {
+              label: '領取生存補給 (+2 蘋果)',
+              onClick: () => {
+                inventory.food += 2;
+                updateInventoryUI();
+                SFX.coin();
+                showToast(`🎁 ${npc.name} 送了你 2 個超級蘋果！`);
+                closeDialogue();
+              }
+            }
+          ]);
+          return;
+        }
+      }
+
+      const item = hotbarItems[selectedSlot];
+
+      // 2. 如果是食物，食用並回復飢餓度與生命值
+      if (item.isFood) {
+        if (inventory.food <= 0) {
+          showToast('❌ 沒有食物了！試著敲碎樹葉或問號磚塊吧！');
+          return;
+        }
+        if (player.hunger >= player.maxHunger && player.hp >= player.maxHp) {
+          showToast('😋 你的生命值與飽食度都是滿的！');
+          return;
+        }
+        inventory.food--;
+        updateInventoryUI();
+        player.hunger = Math.min(player.maxHunger, player.hunger + 6);
+        player.hp = Math.min(player.maxHp, player.hp + 4);
+        updateSurvivalHUD();
+        triggerSwing();
+        SFX.eat();
+        showToast('🍎 食用超級蘋果！生命與飽食度大幅回復！');
+        return;
+      }
+
+      // 3. 如果是方塊，放置到準星指向的相鄰面
+      if (item.blockType) {
+        const countKey = item.id;
+        if ((inventory[countKey] || 0) <= 0) {
+          showToast(`❌ ${item.name} 數量不足！請先採集資源。`);
+          return;
+        }
+
+        const blockHits = getCenterRayHits(blockMeshes);
+        if (blockHits.length > 0) {
+          const hit = blockHits[0];
+          const nx = hit.object.userData.x + Math.round(hit.face.normal.x);
+          const ny = hit.object.userData.y + Math.round(hit.face.normal.y);
+          const nz = hit.object.userData.z + Math.round(hit.face.normal.z);
+
+          // 避免把方塊卡進玩家身體內部
+          const pMinX = player.pos.x - player.radius;
+          const pMaxX = player.pos.x + player.radius;
+          const pMinY = player.pos.y - player.height;
+          const pMaxY = player.pos.y + 0.15;
+          const pMinZ = player.pos.z - player.radius;
+          const pMaxZ = player.pos.z + player.radius;
+
+          const overlapX = pMaxX > nx - 0.5 && pMinX < nx + 0.5;
+          const overlapY = pMaxY > ny - 0.5 && pMinY < ny + 0.5;
+          const overlapZ = pMaxZ > nz - 0.5 && pMinZ < nz + 0.5;
+
+          if (overlapX && overlapY && overlapZ) {
+            showToast('⚠️ 無法在身體重疊位置放置方塊！');
+            return;
+          }
+
+          if (!hasBlock(nx, ny, nz)) {
+            addBlock(nx, ny, nz, item.blockType);
+            inventory[countKey]--;
+            updateInventoryUI();
+            triggerSwing();
+            SFX.placeBlock();
+          }
+        }
+      }
+    }
+
+    window.addEventListener('mousedown', (e) => {
+      if (!controls.isLocked) return;
+      if (e.button === 0) {
+        performPrimaryAction();
+      } else if (e.button === 2) {
+        performSecondaryAction();
+      }
+    });
+
+    window.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    /* =========================================================================
+       10. 麥塊 AABB 體素碰撞與玩家物理移動更新
+       ========================================================================= */
+    function checkPlayerCollision(px, py, pz) {
+      const minX = Math.floor(px - player.radius + 0.5);
+      const maxX = Math.floor(px + player.radius + 0.5);
+      const minY = Math.floor(py - player.height + 0.5);
+      const maxY = Math.floor(py + 0.15 + 0.5);
+      const minZ = Math.floor(pz - player.radius + 0.5);
+      const maxZ = Math.floor(pz + player.radius + 0.5);
+
+      for (let bx = minX; bx <= maxX; bx++) {
+        for (let by = minY; by <= maxY; by++) {
+          for (let bz = minZ; bz <= maxZ; bz++) {
+            const blk = worldBlocks.get(`${bx},${by},${bz}`);
+            if (blk && blk.type !== 'lava') {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    }
+
+    function updatePlayer(dt) {
+      if (player.invulnTimer > 0) player.invulnTimer -= dt;
+
+      // 取得相機水平前方向量與右方向量
+      const forward = new THREE.Vector3();
+      camera.getWorldDirection(forward);
+      forward.y = 0;
+      if (forward.lengthSq() > 0.0001) forward.normalize();
+
+      const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+
+      let moveForward = 0;
+      let moveRight = 0;
+      if (keys['KeyW'] || keys['ArrowUp']) moveForward += 1;
+      if (keys['KeyS'] || keys['ArrowDown']) moveForward -= 1;
+      if (keys['KeyD'] || keys['ArrowRight']) moveRight += 1;
+      if (keys['KeyA'] || keys['ArrowLeft']) moveRight -= 1;
+
+      // 加上手機搖桿輸入
+      moveForward -= joyMoveZ;
+      moveRight += joyMoveX;
+
+      const isSprinting = Boolean(keys['ShiftLeft'] || keys['ShiftRight']);
+      const speed = isSprinting ? 7.6 : 5.2;
+
+      const moveVec = new THREE.Vector3()
+        .addScaledVector(forward, moveForward)
+        .addScaledVector(right, moveRight);
+
+      if (moveVec.lengthSq() > 1) moveVec.normalize();
+
+      player.vel.x = moveVec.x * speed;
+      player.vel.z = moveVec.z * speed;
+
+      // 跳躍
+      if (keys['Space'] && player.onGround) {
+        player.vel.y = 8.4;
+        player.onGround = false;
+      }
+
+      // 重力加速度
+      player.vel.y -= 22.0 * dt;
+
+      // X 軸移動與碰撞分離
+      const nextX = player.pos.x + player.vel.x * dt;
+      if (!checkPlayerCollision(nextX, player.pos.y, player.pos.z)) {
+        player.pos.x = nextX;
+      }
+
+      // Z 軸移動與碰撞分離
+      const nextZ = player.pos.z + player.vel.z * dt;
+      if (!checkPlayerCollision(player.pos.x, player.pos.y, nextZ)) {
+        player.pos.z = nextZ;
+      }
+
+      // Y 軸移動與著地偵測
+      const nextY = player.pos.y + player.vel.y * dt;
+      if (!checkPlayerCollision(player.pos.x, nextY, player.pos.z)) {
+        player.pos.y = nextY;
+        player.onGround = false;
+      } else {
+        if (player.vel.y < 0) {
+          player.onGround = true;
+        }
+        player.vel.y = 0;
+      }
+
+      // 岩漿灼傷檢測
+      const footBlk = worldBlocks.get(`${Math.round(player.pos.x)},${Math.round(player.pos.y - player.height)},${Math.round(player.pos.z)}`);
+      if (footBlk && footBlk.type === 'lava') {
+        player.lavaTickTimer += dt;
+        if (player.lavaTickTimer >= 0.6) {
+          player.lavaTickTimer = 0;
+          damagePlayer(3, '🔥 小心！你踩進了滾燙的熔岩池！');
+        }
+      } else {
+        player.lavaTickTimer = 0;
+      }
+
+      // 掉落虛空檢測
+      if (player.pos.y < -16) {
+        respawnPlayer('🌌 你掉進了浮空島下方的虛空！已重新傳送回起點。');
+      }
+
+      camera.position.copy(player.pos);
+
+      // 走路時手持物輕微上下擺動 (View Bobbing)
+      if (heldMesh) {
+        const horizSpeed = Math.hypot(player.vel.x, player.vel.z);
+        const bob = player.onGround && horizSpeed > 0.2 ? Math.sin(performance.now() * 0.012) * 0.025 : 0;
+        if (swingAnim > 0) {
+          swingAnim = Math.max(0, swingAnim - dt * 5.5);
+          heldMesh.rotation.x = -Math.sin(swingAnim * Math.PI) * 1.15;
+        } else {
+          heldMesh.position.y = -0.35 + bob;
+        }
+      }
+
+      // 飢餓度消耗與飽食自動回血機制 (比照真實麥塊生存)
+      const isMoving = Math.hypot(player.vel.x, player.vel.z) > 0.3;
+      player.hungerDrainTimer += dt * (isSprinting && isMoving ? 2.2 : (isMoving ? 0.8 : 0.25));
+      if (player.hungerDrainTimer >= 16) {
+        player.hungerDrainTimer = 0;
+        if (player.hunger > 0) {
+          player.hunger = Math.max(0, player.hunger - 1);
+          updateSurvivalHUD();
+        }
+      }
+
+      if (player.hunger >= 16 && player.hp < player.maxHp) {
+        player.regenTimer += dt;
+        if (player.regenTimer >= 3.5) {
+          player.regenTimer = 0;
+          player.hp = Math.min(player.maxHp, player.hp + 1);
+          updateSurvivalHUD();
+        }
+      } else if (player.hunger === 0) {
+        player.regenTimer += dt;
+        if (player.regenTimer >= 4.0) {
+          player.regenTimer = 0;
+          damagePlayer(1, '🍗 飢餓度歸零！請按 8 號鍵吃超級蘋果補充體力！');
+        }
+      }
+
+      // 更新目前所在浮空島名稱
+      let nearestIsland = ISLANDS[0];
+      let minDist = Infinity;
+      for (const isl of ISLANDS) {
+        const d = Math.hypot(player.pos.x - isl.x, player.pos.z - isl.z);
+        if (d < minDist) {
+          minDist = d;
+          nearestIsland = isl;
+        }
+      }
+      document.getElementById('location-name').textContent =
+        minDist <= 11 ? nearestIsland.name : '🌉 跨島天空橋梁';
+    }
+
+    /* =========================================================================
+       11. NPC 巡邏動畫與怪物追蹤攻擊 AI 更新
+       ========================================================================= */
+    let mobSpawnTimer = 0;
+
+    function updateNPCsAndMobs(dt, elapsed) {
+      // 更新友善 NPC 在各自島嶼安全範圍內漫步
+      for (const npc of npcs) {
+        npc.walkTimer -= dt;
+        if (npc.walkTimer <= 0) {
+          npc.walkTimer = 1.8 + Math.random() * 2.5;
+          npc.dirAngle = Math.random() * Math.PI * 2;
+        }
+        const speed = 1.1;
+        const nx = npc.rig.group.position.x + Math.sin(npc.dirAngle) * speed * dt;
+        const nz = npc.rig.group.position.z + Math.cos(npc.dirAngle) * speed * dt;
+
+        // 檢查前方是否有地板且不超出家園半徑 4.5 格
+        const distHome = Math.hypot(nx - npc.homeX, nz - npc.homeZ);
+        const groundBelow = hasBlock(nx, npc.baseY - 1, nz);
+        const wallAhead = hasBlock(nx, npc.baseY, nz);
+
+        if (distHome < 4.5 && groundBelow && !wallAhead) {
+          npc.rig.group.position.x = nx;
+          npc.rig.group.position.z = nz;
+          npc.rig.group.rotation.y = npc.dirAngle;
+          const swing = Math.sin(elapsed * 6) * 0.45;
+          npc.rig.leftLeg.rotation.x = swing;
+          npc.rig.rightLeg.rotation.x = -swing;
+          npc.rig.leftArm.rotation.x = -swing;
+          npc.rig.rightArm.rotation.x = swing;
+        } else {
+          npc.dirAngle += Math.PI * 0.75;
+        }
+      }
+
+      // 定期在遠處島嶼生成新怪物維持生存挑戰性
+      mobSpawnTimer += dt;
+      if (mobSpawnTimer >= 14) {
+        mobSpawnTimer = 0;
+        const types = ['zombie', 'creeper', 'goomba'];
+        const chosenType = types[Math.floor(Math.random() * types.length)];
+        const isl = ISLANDS[1 + Math.floor(Math.random() * (ISLANDS.length - 1))];
+        const sx = isl.x + (Math.random() - 0.5) * 6;
+        const sz = isl.z + (Math.random() - 0.5) * 6;
+        if (Math.hypot(player.pos.x - sx, player.pos.z - sz) > 9) {
+          spawnMob(chosenType, sx, isl.y + 1.5, sz);
+        }
+      }
+
+      // 更新怪物 AI：偵測玩家距離 -> 追擊 -> 攻擊或自爆
+      for (let i = mobs.length - 1; i >= 0; i--) {
+        const mob = mobs[i];
+        const pos = mob.rig.group.position;
+        if (mob.attackCooldown > 0) mob.attackCooldown -= dt;
+
+        const dx = player.pos.x - pos.x;
+        const dz = player.pos.z - pos.z;
+        const distToPlayer = Math.hypot(dx, dz);
+        const dy = Math.abs(player.pos.y - pos.y);
+
+        let moveX = 0;
+        let moveZ = 0;
+        let moveSpeed = 0;
+
+        if (distToPlayer < 13 && dy < 5) {
+          // 進入警戒範圍：轉向玩家並追擊
+          const angle = Math.atan2(dx, dz);
+          mob.rig.group.rotation.y = angle;
+          moveSpeed = mob.type === 'goomba' ? 2.8 : 2.3;
+          moveX = Math.sin(angle) * moveSpeed;
+          moveZ = Math.cos(angle) * moveSpeed;
+
+          // 苦力怕靠近時閃爍並自爆
+          if (mob.type === 'creeper') {
+            if (distToPlayer < 2.4) {
+              mob.fuseTimer += dt;
+              const flash = Math.sin(mob.fuseTimer * 28) > 0;
+              if (mob.rig.bodyMat) {
+                mob.rig.bodyMat.emissive.setHex(flash ? 0xffffff : 0x000000);
+              }
+              if (mob.fuseTimer >= 1.4) {
+                SFX.explosion();
+                createBreakParticles(pos.x, pos.y + 0.8, pos.z, 'lava');
+                if (distToPlayer < 4.2) {
+                  damagePlayer(7, '💥 苦力怕在你身邊自爆了！');
+                }
+                removeMob(mob);
+                continue;
+              }
+            } else {
+              mob.fuseTimer = Math.max(0, mob.fuseTimer - dt);
+              if (mob.rig.bodyMat) mob.rig.bodyMat.emissive.setHex(0x000000);
+            }
+          } else {
+            // 殭屍與栗寶寶近戰攻擊
+            if (distToPlayer < 1.65 && mob.attackCooldown <= 0) {
+              mob.attackCooldown = 1.25;
+              const label = mob.type === 'zombie' ? '🧟 殭屍攻擊了你！' : '🍄 栗寶寶撞擊了你！';
+              damagePlayer(mob.type === 'zombie' ? 3 : 2, label);
+            }
+          }
+        } else {
+          // 平常在島上隨機巡邏
+          mob.wanderTimer -= dt;
+          if (mob.wanderTimer <= 0) {
+            mob.wanderTimer = 2 + Math.random() * 2;
+            mob.wanderAngle = Math.random() * Math.PI * 2;
+          }
+          mob.rig.group.rotation.y = mob.wanderAngle;
+          moveSpeed = 1.0;
+          moveX = Math.sin(mob.wanderAngle) * moveSpeed;
+          moveZ = Math.cos(mob.wanderAngle) * moveSpeed;
+        }
+
+        // 怪物重力與地面碰撞
+        mob.velY -= 20 * dt;
+        const nextY = pos.y + mob.velY * dt;
+        if (hasBlock(pos.x, nextY - 0.1, pos.z)) {
+          mob.velY = 0;
+          pos.y = Math.round(nextY - 0.1) + 0.5;
+        } else {
+          pos.y = nextY;
+        }
+
+        // 怪物掉落虛空清除
+        if (pos.y < -15) {
+          removeMob(mob);
+          continue;
+        }
+
+        const nextX = pos.x + moveX * dt;
+        const nextZ = pos.z + moveZ * dt;
+        // 前方有1格高方塊時自動跳躍攀爬
+        if (hasBlock(nextX, pos.y + 0.2, nextZ) && !hasBlock(nextX, pos.y + 1.2, nextZ)) {
+          mob.velY = 6.2;
+        }
+        // 避免自己走下懸崖 (除非正在緊追玩家)
+        const safeGround = hasBlock(nextX, pos.y - 0.6, nextZ) || hasBlock(nextX, pos.y - 1.6, nextZ);
+        if (!hasBlock(nextX, pos.y + 0.2, nextZ) && (safeGround || distToPlayer < 8)) {
+          pos.x = nextX;
+          pos.z = nextZ;
+          const legSwing = Math.sin(elapsed * 8) * 0.5;
+          if (mob.rig.leftLeg) mob.rig.leftLeg.rotation.x = legSwing;
+          if (mob.rig.rightLeg) mob.rig.rightLeg.rotation.x = -legSwing;
+        } else {
+          mob.wanderAngle += Math.PI * 0.8;
+        }
+      }
+    }
+
+    /* =========================================================================
+       12. 介面按鈕事件綁定 (左側收合、語音切換、補給按鈕)
+       ========================================================================= */
+    const leftSidebar = document.getElementById('left-sidebar');
+    const btnCollapse = document.getElementById('btn-collapse-sidebar');
+    const btnExpand = document.getElementById('btn-expand-sidebar');
+
+    btnCollapse.addEventListener('click', () => {
+      leftSidebar.classList.add('hidden');
+      btnExpand.classList.remove('hidden');
+    });
+    btnExpand.addEventListener('click', () => {
+      leftSidebar.classList.remove('hidden');
+      btnExpand.classList.add('hidden');
+    });
+
+    // 行動裝置預設自動收合左側欄以獲得最大 3D 視野
+    if (window.innerWidth < 768) {
+      leftSidebar.classList.add('hidden');
+      btnExpand.classList.remove('hidden');
+    }
+
+    document.getElementById('btn-voice-toggle').addEventListener('click', () => {
+      voiceEnabled = !voiceEnabled;
+      document.getElementById('voice-icon').className = voiceEnabled
+        ? 'fa-solid fa-volume-high'
+        : 'fa-solid fa-volume-xmark';
+      document.getElementById('voice-label').textContent = voiceEnabled ? '語音開' : '靜音';
+      if (!voiceEnabled && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    });
+
+    document.getElementById('btn-play-guide').addEventListener('click', () => {
+      if (controls.isLocked) controls.unlock();
+      openDialogue(
+        '系統語音導覽員',
+        '🧭',
+        '你目前位於六大主題浮空島世界！向東過橋可抵達瑪利歐蘑菇王國島，向西是冰雪鑽石島，向南是黃金沙漠島，向北則是庫巴熔岩堡壘。按左鍵挖取方塊或砍殺怪物，按右鍵放置方塊或吃蘋果回復生命！',
+        [
+          {
+            label: '傳送回平原起點',
+            onClick: () => {
+              player.pos.set(0, 3.5, 3);
+              player.vel.set(0, 0, 0);
+              closeDialogue();
+              showToast('✨ 已傳送回麥塊平原島起點！');
+            }
+          }
+        ]
+      );
+    });
+
+    document.getElementById('btn-respawn-supply').addEventListener('click', () => {
+      inventory.wood += 8;
+      inventory.stone += 8;
+      inventory.food += 3;
+      updateInventoryUI();
+      SFX.coin();
+      showToast('📦 已領取生存物資補給：原木+8、圓石+8、蘋果+3！');
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    /* =========================================================================
+       13. 主動畫迴圈 (Game Loop)
+       ========================================================================= */
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = Math.min(clock.getDelta(), 0.05);
+      const elapsed = clock.elapsedTime;
+
+      updatePlayer(dt);
+      updateNPCsAndMobs(dt, elapsed);
+
+      // 雲朵緩慢飄動
+      for (const c of clouds) {
+        c.group.position.x += c.speed * dt;
+        if (c.group.position.x > 75) c.group.position.x = -75;
+      }
+
+      // 更新方塊破壞噴發粒子
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.life -= dt;
+        p.vel.y -= 14 * dt;
+        p.mesh.position.addScaledVector(p.vel, dt);
+        p.mesh.rotation.x += 5 * dt;
+        p.mesh.rotation.y += 5 * dt;
+        if (p.life <= 0) {
+          scene.remove(p.mesh);
+          particles.splice(i, 1);
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    window.addEventListener('load', () => {
+      animate();
+    });
+  </script>
+</body>
+</html>
